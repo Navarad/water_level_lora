@@ -3,12 +3,12 @@
 #include "HT_SSD1306Wire.h"
 #include "LoRaWan_APP.h"
 
+// features
 #define SENSOR_ENABLED true
 #define BATTERY_READING_ENABLED true
 #define LORA_ENABLED true
 #define DISPLAY_ENABLED true
 #define LOGS_ENABLED true
-
 #define READING_FREQUENCY_MS 2000
 
 // OLED display
@@ -77,9 +77,14 @@ void log_distance(int distance) {
 }
 
 float get_battery_voltage() {
+  digitalWrite(ADC_CTRL_PIN, HIGH);
+
   int raw = analogRead(VBAT_PIN);
   float v_adc = (raw / 4095.0) * 3.3;
   float vbat = v_adc * 4.9;
+
+  digitalWrite(ADC_CTRL_PIN, LOW);
+
   return vbat;
 }
 
@@ -100,35 +105,44 @@ void send_lora_distance(int distance) {
 
 void setup() {
   // battery
-  analogReadResolution(12);  // 12-bitové rozlíšenie (0–4095)
-  pinMode(ADC_CTRL_PIN, OUTPUT);
-  digitalWrite(ADC_CTRL_PIN, HIGH);
+  if (BATTERY_READING_ENABLED) {
+    analogReadResolution(12);  // 12-bit resolution (0–4095)
+    pinMode(ADC_CTRL_PIN, OUTPUT);
+  }
 
   // distance sensor JSN-SR04T-V3.3
-  Serial.begin(9600);
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
+  if (SENSOR_ENABLED){
+    Serial.begin(9600);
+    pinMode(trigPin, OUTPUT);
+    pinMode(echoPin, INPUT);
+  }
 
   // for display or distance sensor
-  VextON();
+  if (SENSOR_ENABLED || DISPLAY_ENABLED) {
+    VextON();
+  }
 
   // display setup
-  factory_display.init();
-  factory_display.clear();
-  factory_display.setFont(ArialMT_Plain_16);
-  factory_display.setTextAlignment(TEXT_ALIGN_LEFT);
+  if (DISPLAY_ENABLED) {
+    factory_display.init();
+    factory_display.clear();
+    factory_display.setFont(ArialMT_Plain_16);
+    factory_display.setTextAlignment(TEXT_ALIGN_LEFT);
+  }
 
   // LoRa
-  Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
-  RadioEvents.TxDone = OnTxDone;
-  RadioEvents.TxTimeout = OnTxTimeout;
+  if (LORA_ENABLED) {
+    Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
+    RadioEvents.TxDone = OnTxDone;
+    RadioEvents.TxTimeout = OnTxTimeout;
 
-  Radio.Init(&RadioEvents);
-  Radio.SetChannel(RF_FREQUENCY);
-  Radio.SetTxConfig(MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
-                    LORA_SPREADING_FACTOR, LORA_CODINGRATE,
-                    LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
-                    true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
+    Radio.Init(&RadioEvents);
+    Radio.SetChannel(RF_FREQUENCY);
+    Radio.SetTxConfig(MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
+                      LORA_SPREADING_FACTOR, LORA_CODINGRATE,
+                      LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
+                      true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
+  }
 
   delay(2000);
 }
@@ -177,7 +191,7 @@ void loop() {
   delay(READING_FREQUENCY_MS);
 }
 
-// Callback funkcie
+// Callback functions
 void OnTxDone(void) {
   Serial.println("LoRa TX hotové.");
   lora_idle = true;
