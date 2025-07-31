@@ -3,21 +3,27 @@
 #include "HT_SSD1306Wire.h"
 #include "LoRaWan_APP.h"
 
-#define LORA_ENABLED false
+#define SENSOR_ENABLED true
+#define BATTERY_READING_ENABLED true
+#define LORA_ENABLED true
 #define DISPLAY_ENABLED true
+#define LOGS_ENABLED true
 
-// OLED displej
+#define READING_FREQUENCY_MS 2000
+
+// OLED display
 SSD1306Wire factory_display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);
 
+// Battery
 #define VBAT_PIN 1  // GPIO1 (VBat pin)
-#define ADC_CTRL_PIN 37    // Potrebuješ tento pin zapnúť HIGH pred čítaním
+#define ADC_CTRL_PIN 37    // Needs to be HIGH before reading battery
 
-// Senzor
+// Sensor
 #define trigPin 46
 #define echoPin 45
 
-// LoRa konfigurácia (zmeň podľa regiónu)
-#define RF_FREQUENCY 868000000  // 868 MHz pre Európu
+// LoRa
+#define RF_FREQUENCY 868000000  // 868 MHz for Europe
 #define TX_OUTPUT_POWER 5
 #define LORA_BANDWIDTH 0
 #define LORA_SPREADING_FACTOR 7
@@ -83,6 +89,15 @@ void log_battery_voltage(float battery_voltage) {
   Serial.println(" V");
 }
 
+void send_lora_distance(int distance) {
+  if (lora_idle) {
+    sprintf(txpacket, "Hlbka: %d cm", distance);
+    Radio.Send((uint8_t *)txpacket, strlen(txpacket));
+    lora_idle = false;
+  }
+  Radio.IrqProcess();
+}
+
 void setup() {
   // battery
   analogReadResolution(12);  // 12-bitové rozlíšenie (0–4095)
@@ -122,38 +137,44 @@ void loop() {
   factory_display.clear();
 
   // battery
-  float battery_voltage = get_battery_voltage();
+  if (BATTERY_READING_ENABLED) {
+    float battery_voltage = get_battery_voltage();
 
-  // log battery voltage
-  log_battery_voltage(battery_voltage);
-
-  //show on display
-  display_battery(battery_voltage);
-
-  // trigger distance sensor
-  trigger_distance_sensor();
-  
-  // listen from the sensor
-  int distance = get_distance_sensor_data();
-  
-  // log distance
-  log_distance(distance);
-
-  // show on display
-  display_distance(distance);
-
-  // lora
-  if (LORA_ENABLED) {
-    if (lora_idle) {
-      sprintf(txpacket, "Vzdialenost: %d cm", distance);
-      Serial.printf("Odosielam LoRa packet: \"%s\"\n", txpacket);
-      Radio.Send((uint8_t *)txpacket, strlen(txpacket));
-      lora_idle = false;
+    // log battery voltage
+    if (LOGS_ENABLED) {
+      log_battery_voltage(battery_voltage);
     }
-    Radio.IrqProcess();
+
+    //show on display
+    if (DISPLAY_ENABLED) {
+      display_battery(battery_voltage);
+    }
   }
 
-  delay(2000);  // Posielaj každé 2s
+  if (SENSOR_ENABLED){
+    // trigger distance sensor
+    trigger_distance_sensor();
+    
+    // listen from the sensor
+    int distance = get_distance_sensor_data();
+    
+    // log distance
+    if (LOGS_ENABLED) {
+      log_distance(distance);
+    }
+
+    // show on display
+    if (DISPLAY_ENABLED) {
+      display_distance(distance);
+    }
+
+    // lora
+    if (LORA_ENABLED) {
+      send_lora_distance(distance);
+    }
+  }
+
+  delay(READING_FREQUENCY_MS);
 }
 
 // Callback funkcie
