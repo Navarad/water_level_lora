@@ -2,14 +2,15 @@
 #include <Wire.h>
 #include "HT_SSD1306Wire.h"
 #include "LoRaWan_APP.h"
+#include "esp_sleep.h"
 
 // features
 #define SENSOR_ENABLED true
 #define BATTERY_READING_ENABLED true
 #define LORA_ENABLED true
 #define DISPLAY_ENABLED true
-#define LOGS_ENABLED true
-#define READING_FREQUENCY_MS 2000
+#define DEEP_SLEEP_ENABLED true
+#define READING_FREQUENCY_MS 10000
 
 // OLED display
 SSD1306Wire factory_display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);
@@ -32,7 +33,7 @@ SSD1306Wire factory_display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, R
 #define LORA_SYMBOL_TIMEOUT 0
 #define LORA_FIX_LENGTH_PAYLOAD_ON false
 #define LORA_IQ_INVERSION_ON false
-#define RX_TIMEOUT_VALUE 1000
+#define LORA_TIMEOUT_MS 3000
 
 char txpacket[30];
 bool lora_idle = true;
@@ -40,11 +41,6 @@ bool lora_idle = true;
 static RadioEvents_t RadioEvents;
 void OnTxDone(void);
 void OnTxTimeout(void);
-
-void VextON() {
-  pinMode(Vext, OUTPUT);
-  digitalWrite(Vext, LOW);
-}
 
 void display_distance(int distance) {
   factory_display.drawString(0, 0, "Hlbka: " + String(distance) + " cm");
@@ -98,12 +94,65 @@ void send_lora_distance(int distance) {
   if (lora_idle) {
     sprintf(txpacket, "Hlbka: %d cm", distance);
     Radio.Send((uint8_t *)txpacket, strlen(txpacket));
+    Serial.println("LoRa TX started.");
     lora_idle = false;
+
+    // process lora status
+    unsigned long start = millis();
+    while (!lora_idle && millis() - start < LORA_TIMEOUT_MS) {
+      // check if lora finished sending packet -> this should trigger TX done callback
+      Radio.IrqProcess();
+      delay(10);
+    }
+    // NOTE: if time passed without processing then the TX done callback wont be triggered 
+    // after this time the timeout callback should be called
   }
-  Radio.IrqProcess();
+}
+
+void print_wakeup_reason() {
+  esp_sleep_wakeup_cause_t wakeup_reason;
+
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+
+  switch (wakeup_reason) {
+    case ESP_SLEEP_WAKEUP_EXT0:     Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_EXT1:     Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+    case ESP_SLEEP_WAKEUP_TIMER:    Serial.println("Wakeup caused by timer"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
+    case ESP_SLEEP_WAKEUP_ULP:      Serial.println("Wakeup caused by ULP program"); break;
+    default:                        Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
+  }
+}
+
+void deep_sleep() {
+  // disable all peripherals
+  if (LORA_ENABLED) {
+    // Radio.Sleep();
+  }
+  if (SENSOR_ENABLED || DISPLAY_ENABLED) {
+    // digitalWrite(Vext, HIGH);
+  }
+  if (DISPLAY_ENABLED) {
+    // factory_display.displayOff();
+  }
+
+  // start timer and initiate deep sleep
+  esp_sleep_enable_timer_wakeup(READING_FREQUENCY_MS * 1000); // microseconds
+  Serial.flush();
+  Serial.println("Deep sleep starting");
+  esp_deep_sleep_start();
+  // NOTE: code here should not be executed
+  Serial.println("Deep sleep ending, you shouldn't see this");
 }
 
 void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println("-----Setup starting-----");
+
+  print_wakeup_reason();
+
   // battery
   if (BATTERY_READING_ENABLED) {
     analogReadResolution(12);  // 12-bit resolution (0–4095)
@@ -112,14 +161,14 @@ void setup() {
 
   // distance sensor JSN-SR04T-V3.3
   if (SENSOR_ENABLED){
-    Serial.begin(9600);
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
   }
 
   // for display or distance sensor
   if (SENSOR_ENABLED || DISPLAY_ENABLED) {
-    VextON();
+    pinMode(Vext, OUTPUT);
+    digitalWrite(Vext, LOW);
   }
 
   // display setup
@@ -141,13 +190,17 @@ void setup() {
     Radio.SetTxConfig(MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
                       LORA_SPREADING_FACTOR, LORA_CODINGRATE,
                       LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
-                      true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
+                      true, 0, 0, LORA_IQ_INVERSION_ON, LORA_TIMEOUT_MS);
   }
+
+  Serial.println("-----Setup ending-----");
 
   delay(2000);
 }
 
 void loop() {
+  Serial.println("-----Loop start------");
+
   factory_display.clear();
 
   // battery
@@ -155,9 +208,7 @@ void loop() {
     float battery_voltage = get_battery_voltage();
 
     // log battery voltage
-    if (LOGS_ENABLED) {
-      log_battery_voltage(battery_voltage);
-    }
+    log_battery_voltage(battery_voltage);
 
     //show on display
     if (DISPLAY_ENABLED) {
@@ -173,9 +224,7 @@ void loop() {
     int distance = get_distance_sensor_data();
     
     // log distance
-    if (LOGS_ENABLED) {
-      log_distance(distance);
-    }
+    log_distance(distance);
 
     // show on display
     if (DISPLAY_ENABLED) {
@@ -188,12 +237,20 @@ void loop() {
     }
   }
 
-  delay(READING_FREQUENCY_MS);
+  if (DEEP_SLEEP_ENABLED) {
+    deep_sleep();
+  } else {
+    Serial.println("Starting delay");
+    delay(READING_FREQUENCY_MS);
+    Serial.println("Ending delay");
+  }
+
+  Serial.println("-----Loop end------");
 }
 
 // Callback functions
 void OnTxDone(void) {
-  Serial.println("LoRa TX hotové.");
+  Serial.println("LoRa TX finished.");
   lora_idle = true;
 }
 
