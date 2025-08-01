@@ -45,11 +45,17 @@ void OnTxTimeout(void);
 void display_distance(int distance) {
   factory_display.drawString(0, 0, "Hlbka: " + String(distance) + " cm");
   factory_display.display();
+  if (DEEP_SLEEP_ENABLED) {
+    delay(5000); // in deepsleep mode we have only small window to show data do we delay it to see
+  }
 }
 
 void display_battery(float battery_voltage) {
   factory_display.drawString(0, 20, "Bateria: " + String(battery_voltage) + " V");
   factory_display.display();
+  if (DEEP_SLEEP_ENABLED) {
+    delay(5000); // in deepsleep mode we have only small window to show data do we delay it to see
+  }
 }
 
 void trigger_distance_sensor() {
@@ -127,21 +133,21 @@ void print_wakeup_reason() {
 void deep_sleep() {
   // disable all peripherals
   if (LORA_ENABLED) {
-    // Radio.Sleep();
+    Radio.Sleep();
   }
   if (SENSOR_ENABLED || DISPLAY_ENABLED) {
-    // digitalWrite(Vext, HIGH);
+    digitalWrite(Vext, HIGH);
   }
   if (DISPLAY_ENABLED) {
-    // factory_display.displayOff();
+    factory_display.displayOff();
   }
 
   // start timer and initiate deep sleep
   esp_sleep_enable_timer_wakeup(READING_FREQUENCY_MS * 1000); // microseconds
   Serial.flush();
+
   Serial.println("Deep sleep starting");
   esp_deep_sleep_start();
-  // NOTE: code here should not be executed
   Serial.println("Deep sleep ending, you shouldn't see this");
 }
 
