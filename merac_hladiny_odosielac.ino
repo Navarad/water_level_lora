@@ -35,22 +35,15 @@ SSD1306Wire factory_display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, R
 #define LORA_IQ_INVERSION_ON false
 #define LORA_TIMEOUT_MS 3000
 
-char txpacket[30];
+char txpacket[32];
 bool lora_idle = true;
 
 static RadioEvents_t RadioEvents;
 void OnTxDone(void);
 void OnTxTimeout(void);
 
-void display_distance(int distance) {
+void display_data(int distance, float battery_voltage) {
   factory_display.drawString(0, 0, "Hlbka: " + String(distance) + " cm");
-  factory_display.display();
-  if (DEEP_SLEEP_ENABLED) {
-    delay(5000); // in deepsleep mode we have only small window to show data do we delay it to see
-  }
-}
-
-void display_battery(float battery_voltage) {
   factory_display.drawString(0, 20, "Bateria: " + String(battery_voltage) + " V");
   factory_display.display();
   if (DEEP_SLEEP_ENABLED) {
@@ -96,22 +89,18 @@ void log_battery_voltage(float battery_voltage) {
   Serial.println(" V");
 }
 
-void send_lora_distance(int distance) {
+void send_lora_data(int distance, float voltage) {
   if (lora_idle) {
-    sprintf(txpacket, "Hlbka: %d cm", distance);
+    sprintf(txpacket, "%d|%.2f", distance, voltage);
     Radio.Send((uint8_t *)txpacket, strlen(txpacket));
-    Serial.println("LoRa TX started.");
+    Serial.println("LoRa TX started (distance + battery).");
     lora_idle = false;
 
-    // process lora status
     unsigned long start = millis();
     while (!lora_idle && millis() - start < LORA_TIMEOUT_MS) {
-      // check if lora finished sending packet -> this should trigger TX done callback
       Radio.IrqProcess();
       delay(10);
     }
-    // NOTE: if time passed without processing then the TX done callback wont be triggered 
-    // after this time the timeout callback should be called
   }
 }
 
@@ -210,37 +199,35 @@ void loop() {
   factory_display.clear();
 
   // battery
+  float battery_voltage = 0.0;
   if (BATTERY_READING_ENABLED) {
-    float battery_voltage = get_battery_voltage();
+    battery_voltage = get_battery_voltage();
 
     // log battery voltage
     log_battery_voltage(battery_voltage);
-
-    //show on display
-    if (DISPLAY_ENABLED) {
-      display_battery(battery_voltage);
-    }
   }
 
+  // distance
+  int distance = 0.0;
   if (SENSOR_ENABLED){
     // trigger distance sensor
     trigger_distance_sensor();
     
     // listen from the sensor
-    int distance = get_distance_sensor_data();
+    distance = get_distance_sensor_data();
     
     // log distance
     log_distance(distance);
+  }
 
-    // show on display
-    if (DISPLAY_ENABLED) {
-      display_distance(distance);
-    }
+  // display
+  if (DISPLAY_ENABLED) {
+    display_data(distance, battery_voltage);
+  }
 
     // lora
-    if (LORA_ENABLED) {
-      send_lora_distance(distance);
-    }
+  if (LORA_ENABLED) {
+    send_lora_data(distance, battery_voltage);
   }
 
   if (DEEP_SLEEP_ENABLED) {
