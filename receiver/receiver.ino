@@ -47,18 +47,33 @@ void show_waiting_message() {
 
 // Funkcia na parsovanie prichádzajúceho packetu a volanie show_on_display
 void parse_and_show_data(const String &packet) {
-  int commaIndex = packet.indexOf('|');
-  if (commaIndex > 0) {
-    String depth = packet.substring(0, commaIndex);
-    depth.trim();  // odstráni prípadné medzery
-    String battery = packet.substring(commaIndex + 1);
-    battery.trim();  // odstráni prípadné medzery
+  const String prefix = "TDNODE|";
+
+  if (!packet.startsWith(prefix)) {
+    // Neplatný paket – ignoruj alebo zobraz fallback
+    factory_display.clear();
+    factory_display.drawString(0, 0, "Neznamy paket:");
+    factory_display.drawString(0, 20, packet);
+    factory_display.display();
+    return;
+  }
+
+  // Odstráň prefix
+  String payload = packet.substring(prefix.length());
+
+  // Hľadáme ďalší oddelovač medzi hodnotami
+  int sepIndex = payload.indexOf('|');
+  if (sepIndex > 0) {
+    String depth = payload.substring(0, sepIndex);
+    depth.trim();
+    String battery = payload.substring(sepIndex + 1);
+    battery.trim();
     show_on_display(depth, battery);
   } else {
-    // Ak neobsahuje pajpu, zobraz celý packet ako fallback
+    // Chýba oddelovač medzi hodnotami – zobraz ako fallback
     factory_display.clear();
-    factory_display.drawString(0, 0, "Prijate:");
-    factory_display.drawString(0, 20, packet);
+    factory_display.drawString(0, 0, "Chyba v pakete:");
+    factory_display.drawString(0, 20, payload);
     factory_display.display();
   }
 }

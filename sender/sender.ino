@@ -8,7 +8,7 @@
 #define SENSOR_ENABLED true
 #define BATTERY_READING_ENABLED true
 #define LORA_ENABLED true
-#define DISPLAY_ENABLED true
+#define DISPLAY_ENABLED false
 #define DEEP_SLEEP_ENABLED true
 #define READING_FREQUENCY_MS 10000
 
@@ -91,7 +91,7 @@ void log_battery_voltage(float battery_voltage) {
 
 void send_lora_data(int distance, float voltage) {
   if (lora_idle) {
-    sprintf(txpacket, "%d|%.2f", distance, voltage);
+    sprintf(txpacket, "TDNODE|%d|%.2f", distance, voltage);
     Radio.Send((uint8_t *)txpacket, strlen(txpacket));
     Serial.println("LoRa TX started (distance + battery).");
     lora_idle = false;
@@ -195,9 +195,9 @@ void setup() {
 
 void loop() {
   Serial.println("-----Loop start------");
-
-  factory_display.clear();
-
+  if (DISPLAY_ENABLED) {
+    factory_display.clear();
+  }
   // battery
   float battery_voltage = 0.0;
   if (BATTERY_READING_ENABLED) {
