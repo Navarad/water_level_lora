@@ -2,6 +2,23 @@
 #include <Wire.h>
 #include "HT_SSD1306Wire.h"
 #include "LoRaWan_APP.h"
+#include "secrets.h"
+
+// FIREBASE
+#define ENABLE_USER_AUTH
+#define ENABLE_FIRESTORE
+#include <FirebaseClient.h>
+#include "ExampleFunctions.h" // Provides the functions used in the examples.
+#include <time.h> // nezabudni na začiatku
+#include "FirebaseHelper.h"
+SSL_CLIENT ssl_client;
+using AsyncClient = AsyncClientClass;
+AsyncClient aClient(ssl_client);
+UserAuth user_auth(API_KEY, USER_EMAIL, USER_PASSWORD, 3000 /* expire period in seconds (<3600) */);
+FirebaseApp app;
+Firestore::Documents Docs;
+AsyncResult firestoreResult;
+unsigned long dataMillis = 0;
 
 // OLED displej
 SSD1306Wire factory_display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);
@@ -27,11 +44,6 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr);
 void OnRxTimeout(void);
 void OnRxError(void);
 
-void VextON() {
-  pinMode(Vext, OUTPUT);
-  digitalWrite(Vext, LOW);
-}
-
 void show_on_display(const String &text1, const String &text2) {
   factory_display.clear();
   factory_display.drawString(0, 0, "Hlbka: " + text1 + " cm");
@@ -43,6 +55,15 @@ void show_waiting_message() {
   factory_display.clear();
   factory_display.drawString(0, 0, "Cakam na LoRa...");
   factory_display.display();
+}
+
+void log_to_firebase(int depth, float battery) {
+  if (app.ready()) {
+    Document<Values::Value> doc = createWaterLevelDocument(depth, battery);
+    String documentPath = "water_level_readings/";
+    create_document_async(Docs, aClient, doc, documentPath);
+    Serial.println("Dokument odoslaný: " + documentPath);
+  }
 }
 
 // Funkcia na parsovanie prichádzajúceho packetu a volanie show_on_display
@@ -69,6 +90,7 @@ void parse_and_show_data(const String &packet) {
     String battery = payload.substring(sepIndex + 1);
     battery.trim();
     show_on_display(depth, battery);
+    log_to_firebase(depth.toInt(), battery.toFloat());
   } else {
     // Chýba oddelovač medzi hodnotami – zobraz ako fallback
     factory_display.clear();
@@ -81,7 +103,8 @@ void parse_and_show_data(const String &packet) {
 void setup() {
   Serial.begin(115200);
 
-  VextON();
+  pinMode(Vext, OUTPUT);
+  digitalWrite(Vext, LOW);
 
   // Inicializácia OLED
   factory_display.init();
@@ -107,6 +130,33 @@ void setup() {
 
   // Prepneme rádio do režimu príjmu
   Radio.Rx(0);
+
+  // FIREBASE
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED)
+  {
+      Serial.print(".");
+      delay(300);
+  }
+  Serial.println();
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println();
+  Firebase.printf("Firebase Client v%s\n", FIREBASE_CLIENT_VERSION);
+  set_ssl_client_insecure_and_buffer(ssl_client);
+  Serial.println("Initializing app...");
+  initializeApp(aClient, app, getAuth(user_auth), auth_debug_print, "🔐 authTask");
+  app.getApp<Firestore::Documents>(Docs);
+  // Nastavenie NTP času
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.print("Čakám na čas (NTP)");
+  while (time(nullptr) < 100000) { // čakaj kým sa čas zosynchronizuje (cca 1970 + 1 deň = bezpečná hranica)
+      Serial.print(".");
+      delay(200);
+  }
+  Serial.println();
+  Serial.println("Čas nastavený.");
 }
 
 void loop() {
@@ -121,6 +171,25 @@ void loop() {
     show_waiting_message();  // zobrazíme stav čakania
     Radio.Rx(0);  // znovu zapneme RX
   }
+
+  // FIREBASE
+  // To maintain the authentication and async tasks
+  app.loop();
+  // if (app.ready() && (millis() - dataMillis > 60000 || dataMillis == 0)) // každú minútu
+  // {
+  //     dataMillis = millis();
+
+  //     float hladina = 82.5;     // v cm, meranie zo senzora
+  //     float baterka = 3.92;     // v V, ADC čítanie batérie
+
+  //     Document<Values::Value> doc = createWaterLevelDocument(hladina, baterka);
+  //     String documentPath = "water_level_readings/";
+  //     create_document_async(Docs, aClient, doc, documentPath);
+
+  //     Serial.println("Dokument odoslaný: " + documentPath);
+  // }
+  // // For async call with AsyncResult.
+  processData(firestoreResult);
 }
 
 // Callback: úspešný príjem
