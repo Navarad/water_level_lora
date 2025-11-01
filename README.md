@@ -22,7 +22,7 @@ for compilation you need to have installed Arduino IDE
 
 library: FirebaseClient by Mobizt, maybe: Firebase ESP32 Client by Mobizt, maybe: Firebase ESP8266 Client by Mobizt
 
-library: Heltec ESP32 Dev-Boards by Heltec, Heltec ESP8266 DevBoards by Heltec
+library: Heltec ESP32 Dev-Boards by Heltec
 
 secrets.example.h:
 
