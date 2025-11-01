@@ -24,6 +24,8 @@ library: FirebaseClient by Mobizt, maybe: Firebase ESP32 Client by Mobizt, maybe
 
 library: Heltec ESP32 Dev-Boards by Heltec
 
+in case of license problem look here: https://docs.heltec.org/general/how_to_use_license.html
+call command AT+CDKEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx to activate board
 secrets.example.h:
 
 #pragma once
